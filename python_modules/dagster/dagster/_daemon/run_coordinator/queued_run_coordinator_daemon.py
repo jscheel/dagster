@@ -83,10 +83,7 @@ class QueuedRunCoordinatorDaemon(IntervalDaemon):
         run_coordinator = check.inst(
             workspace_process_context.instance.run_coordinator, QueuedRunCoordinator
         )
-        concurrency_config = (
-            workspace_process_context.instance.get_concurrency_config()
-            or run_coordinator.get_concurrency_config()
-        )
+        concurrency_config = workspace_process_context.instance.get_concurrency_config()
         if not concurrency_config.run_queue_config:
             check.failed("Got invalid run queue config")
 
