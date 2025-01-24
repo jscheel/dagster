@@ -5,6 +5,7 @@ import dagster._check as check
 import graphene
 import yaml
 from dagster._core.instance import DagsterInstance
+from dagster._core.instance.config import PoolGranularity
 from dagster._core.launcher.base import RunLauncher
 from dagster._core.storage.event_log.sql_event_log import SqlEventLogStorage
 from dagster._daemon.asset_daemon import get_auto_materialize_paused
@@ -232,6 +233,15 @@ class GrapheneRunQueueConfig(graphene.ObjectType):
         return self._run_queue_config.should_block_op_concurrency_limited_runs
 
 
+class GraphenePoolConfig(graphene.ObjectType):
+    poolGranularity = graphene.NonNull(graphene.String)
+    poolDefaultLimit = graphene.Int()
+    opGranularityRunBuffer = graphene.Int()
+
+    class Meta:
+        name = "PoolConfig"
+
+
 class GrapheneInstance(graphene.ObjectType):
     id = graphene.NonNull(graphene.String)
     info = graphene.Field(graphene.String)
@@ -254,6 +264,7 @@ class GrapheneInstance(graphene.ObjectType):
         graphene.NonNull(graphene.Boolean),
         description="Whether or not the deployment is using automation policy sensors to materialize assets",
     )
+    poolConfig = graphene.Field(GraphenePoolConfig)
 
     class Meta:
         name = "Instance"
@@ -287,9 +298,9 @@ class GrapheneInstance(graphene.ObjectType):
         return isinstance(self._instance.run_coordinator, QueuedRunCoordinator)
 
     def resolve_runQueueConfig(self, _graphene_info: ResolveInfo):
-        concurrency_config = self._instance.get_concurrency_config()
-        if concurrency_config.run_queue_config:
-            return GrapheneRunQueueConfig(concurrency_config.run_queue_config)
+        run_queue_config = self._instance.get_concurrency_config().run_queue_config
+        if run_queue_config:
+            return GrapheneRunQueueConfig(run_queue_config)
         else:
             return None
 
@@ -323,3 +334,13 @@ class GrapheneInstance(graphene.ObjectType):
 
     def resolve_maxConcurrencyLimitValue(self, _graphene_info: ResolveInfo):
         return get_max_concurrency_limit_value()
+
+    def resolve_poolConfig(self, _graphene_info: ResolveInfo):
+        concurrency_config = self._instance.get_concurrency_config()
+        return GraphenePoolConfig(
+            poolGranularity=concurrency_config.pool_granularity.value
+            if concurrency_config.pool_granularity
+            else PoolGranularity.OP.value,
+            poolDefaultLimit=concurrency_config.default_pool_limit,
+            opGranularityRunBuffer=concurrency_config.op_granularity_run_buffer,
+        )
