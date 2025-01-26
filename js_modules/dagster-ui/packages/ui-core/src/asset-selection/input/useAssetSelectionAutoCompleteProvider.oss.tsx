@@ -3,7 +3,6 @@ import {useMemo} from 'react';
 
 import {getAttributesMap} from './util';
 import {AssetGraphQueryItem} from '../../asset-graph/useAssetGraphData';
-import {useUpdatingRef} from '../../hooks/useUpdatingRef';
 import {createSelectionAutoComplete} from '../../selection/SelectionAutoComplete';
 import {
   BaseSuggestion,
@@ -20,7 +19,14 @@ type Suggestion =
       text: string;
       displayText: string;
       type: 'function' | 'attribute-value' | 'attribute-with-value';
-      attributeName?: string;
+      attributeName?: Omit<Attribute, 'tag'>;
+    }
+  | {
+      text: string;
+      displayText: string;
+      type: 'attribute-value' | 'attribute-with-value';
+      attributeName: 'tag';
+      tag: {key: string; value: string};
     }
   | {
       text: string;
@@ -37,19 +43,25 @@ type Suggestion =
 export function useAssetSelectionAutoCompleteProvider(
   assets: AssetGraphQueryItem[],
 ): SelectionAutoCompleteProvider<Suggestion> {
-  const attributesMapRef = useUpdatingRef(getAttributesMap(assets));
+  const attributesMap = useMemo(() => getAttributesMap(assets), [assets]);
 
   const baseProvider = useMemo(
     () =>
-      createSelectionAutoCompleteProviderFromAttributeMap<
-        typeof attributesMapRef.current,
-        'key',
-        Suggestion
-      >({
+      createSelectionAutoCompleteProviderFromAttributeMap<typeof attributesMap, 'key', Suggestion>({
         nameBase: 'key',
-        attributesMapRef,
+        attributesMap,
         functions: FUNCTIONS,
-        doesValueIncludeQuery: (_attribute, value, query) => value.includes(query),
+        doesValueIncludeQuery: (_attribute, value, query) => {
+          if (typeof value !== 'string') {
+            // This is a tag
+            return (
+              value.key.includes(query) ||
+              value.value.includes(query) ||
+              `${value.key}=${value.value}`.includes(query)
+            );
+          }
+          return value.includes(query);
+        },
         createAttributeSuggestion: (attribute, textCallback) => {
           const text = `${attribute}:`;
           return {
@@ -61,10 +73,23 @@ export function useAssetSelectionAutoCompleteProvider(
           };
         },
         createAttributeValueSuggestion: (attribute, value, textCallback) => {
-          const text = `"${value}"`;
+          let text;
+          let displayText;
+          if (typeof value !== 'string') {
+            if (value.key && value.value) {
+              text = `"${value.key}"="${value.value}"`;
+              displayText = `${value.key}=${value.value}`;
+            } else {
+              text = `"${value.key}"`;
+              displayText = value.key;
+            }
+          } else {
+            text = `"${value}"`;
+            displayText = value;
+          }
           return {
             text: textCallback ? textCallback(text) : text,
-            displayText: value,
+            displayText,
             type: 'attribute-value',
             attributeName: attribute,
           };
@@ -95,7 +120,7 @@ export function useAssetSelectionAutoCompleteProvider(
           };
         },
       }),
-    [attributesMapRef],
+    [attributesMap],
   );
   const selectionHint = useMemo(() => createSelectionAutoComplete(baseProvider), [baseProvider]);
 
@@ -124,7 +149,7 @@ const attributeToIcon: Record<Attribute, IconName> = {
   status: 'status',
 };
 
-export const SuggestionItem = ({suggestion}: {suggestion: Suggestion | BaseSuggestion}) => {
+const SuggestionItem = ({suggestion}: {suggestion: Suggestion | BaseSuggestion}) => {
   let label;
   let icon: IconName | null = null;
   let value: string | null = 'displayText' in suggestion ? suggestion.displayText : null;
